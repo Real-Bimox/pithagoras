@@ -41,7 +41,7 @@ import { when } from "../time";
  * another. A card opens that agent (`?agent=`), with its own home, files and
  * conversations.
  */
-export function AgentPage({ onSelect }: { onSelect: (id: string) => void }) {
+export function AgentPage({ onSelect, onNewChat }: { onSelect: (id: string) => void; onNewChat: (workspace: string) => Promise<void> }) {
   const [params, setParams] = useSearchParams();
   const [agents, setAgents] = useState<Agent[] | null>(null);
   const [creating, setCreating] = useState(false);
@@ -121,6 +121,7 @@ export function AgentPage({ onSelect }: { onSelect: (id: string) => void }) {
         setParams({});
       }}
       onSelect={onSelect}
+      onNewChat={onNewChat}
     />
   );
 }
@@ -181,11 +182,12 @@ function AgentCards({ agents, onOpen, onNew }: { agents: Agent[]; onOpen: (id: s
   );
 }
 
-/** Conversations started here rather than arriving through a channel. */
+/** Conversations started in the portal rather than arriving through a channel. */
 const BROWSER = "browser";
 
 /**
- * The agent's conversations, one per chat rather than one overall.
+ * The agent's conversations, one per chat rather than one overall: the chats in
+ * its home, however they were started, and those that arrived through a channel.
  *
  * A channel package supplies a key for each conversation it sees — a Telegram
  * chat id, a Slack channel — and the portal turns each into its own session.
@@ -200,6 +202,7 @@ function AgentView({
   onChanged,
   onDeleted,
   onSelect,
+  onNewChat,
 }: {
   agent: Agent;
   /** The files its folder already had, which the answers did not replace (see `answersLeft`), until they are dismissed. Held by the page, so that it is said once and not again each time the agent is opened. */
@@ -209,6 +212,8 @@ function AgentView({
   onChanged: () => Promise<void>;
   onDeleted: () => Promise<void>;
   onSelect: (id: string) => void;
+  /** A chat started in the agent's home, as the + in the sidebar starts one: listed in the sidebar and opened. */
+  onNewChat: (workspace: string) => Promise<void>;
 }) {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [setup, setSetup] = useState<Setup | null>(null);
@@ -320,7 +325,8 @@ function AgentView({
       { name: string; kind: string | null; present: boolean; items: AgentSession[] }
     >();
     for (const s of sessions) {
-      const key = s.channel?.slug ?? "none";
+      // A chat the New or + button started has no channel: it is one of the portal's own.
+      const key = s.channel?.slug ?? BROWSER;
       if (!out.has(key)) {
         out.set(key, {
           name: s.channel?.name ?? "",
@@ -401,7 +407,7 @@ function AgentView({
                   setStarting(true);
                   setError("");
                   try {
-                    onSelect((await api.startAgentChat(agent.id)).id);
+                    await onNewChat(agent.home);
                   } catch (e) {
                     setError((e as Error).message);
                   } finally {
